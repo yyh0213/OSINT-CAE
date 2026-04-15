@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI OSINT Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="glass-panel">
+            <header class="sidebar-header">
+                <div class="header-row">
+                    <h1>OSINT</h1>
+                    <button id="btn-settings" class="icon-btn" title="Schedule Options">⚙️</button>
+                </div>
+                <p>Intelligence Desk</p>
+                <button id="btn-generate" class="glow-btn">
+                    <span class="btn-text">+ Generate Report</span>
+                    <span class="btn-spinner hidden"></span>
+                </button>
+                <button id="btn-new-chat" class="glow-btn chat-btn">+ New Chat</button>
+                <button id="btn-reliability" class="glow-btn rel-btn">📊 매체 신뢰도</button>
+            </header>
+
+            <nav id="sidebar-nav">
+                <!-- Reports Section -->
+                <div class="tree-section">
+                    <div class="tree-header" id="toggle-reports">
+                        <span class="tree-arrow" id="arrow-reports">▼</span>
+                        <span class="tree-label">📋 일일보고서</span>
+                    </div>
+                    <div class="tree-body" id="section-reports">
+                        <div class="loader-pulse"></div>
+                    </div>
+                </div>
+
+                <!-- Chats Section -->
+                <div class="tree-section">
+                    <div class="tree-header" id="toggle-chats">
+                        <span class="tree-arrow" id="arrow-chats">▼</span>
+                        <span class="tree-label">💬 채팅이력</span>
+                    </div>
+                    <div class="tree-body" id="section-chats">
+                        <p class="sidebar-empty">채팅 이력이 없습니다.</p>
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="glass-panel">
+            <header class="content-header">
+                <h2 id="report-title">Select a report</h2>
+                <div class="status-indicator">
+                    <span class="pulse-dot"></span> Live Analysis
+                </div>
+            </header>
+
+            <!-- Report View -->
+            <article id="report-body">
+                <p class="placeholder-text">Please select a report from the sidebar to view its details.</p>
+            </article>
+
+            <!-- Generation Progress Overlay -->
+            <div id="generation-progress" class="hidden">
+                <div class="terminal-header">&gt;_ OSINT_ANALYSIS_SEQUENCE_INITIATED</div>
+                <div id="terminal-logs"></div>
+                <div class="progress-bar-container"><div id="progress-bar-fill"></div></div>
+            </div>
+
+            <!-- Chat View (replaces report-body when active) -->
+            <div id="chat-view" class="hidden">
+                <div id="chat-messages"></div>
+                <div id="chat-input-row">
+                    <input type="text" id="chat-input-main" placeholder="분석관에게 질문하십시오...">
+                    <button id="chat-send-main">
+                        <span id="chat-send-text">전송</span>
+                        <span id="chat-send-spinner" class="btn-spinner hidden"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Reliability View -->
+            <div id="reliability-view" class="hidden">
+                <div class="rel-legend-container glass-panel">
+                    <h3>💡 지표 및 상태 가이드 (Metrics Guide)</h3>
+                    <div class="rel-legends">
+                        <div class="legend-item">
+                            <strong>Delta (독창성 델타)</strong>
+                            <p>기존 보도들에서 볼 수 없는 새로운 팩트, 인사이트의 양 (10점 만점). 낮으면 타 매체 의존 의심.</p>
+                        </div>
+                        <div class="legend-item">
+                            <strong>Richness (정보 밀도)</strong>
+                            <p>기사가 포함하는 구체적 수치, 인용, 고유명사 등의 밀도 (10점 만점).</p>
+                        </div>
+                        <div class="legend-item">
+                            <strong>Strikes (표절 경고)</strong>
+                            <p>선행 기사와 코사인 유사도가 90% 이상이면서 델타 점수가 2.0 미만인 기사 발행 시 누적. 3회 이상시 제재.</p>
+                        </div>
+                        <div class="legend-item status-legend">
+                            <div><span class="badge badge-trusted">TRUSTED</span> : 우수 매체 (승격됨)</div>
+                            <div><span class="badge badge-probation">PROBATION</span> : 일반 매체 (기본)</div>
+                            <div><span class="badge badge-blacklisted">BLACKLISTED</span> : 어뷰징 차단됨</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="rel-table-container">
+                    <table id="reliability-table" class="glass-table">
+                        <thead>
+                            <tr>
+                                <th>Source (매체명)</th>
+                                <th>Articles (수집건수)</th>
+                                <th>Delta (독창성)</th>
+                                <th>Richness (밀도)</th>
+                                <th>Strikes (경고)</th>
+                                <th>Status (상태)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reliability-tbody">
+                            <!-- JS will populate -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Side Reference Panel -->
+        <aside id="reference-panel" class="glass-panel hidden">
+            <header class="panel-header">
+                <h3>Reference Details</h3>
+                <button id="close-panel" aria-label="Close Panel">&times;</button>
+            </header>
+            <div id="reference-content">
+                <p class="placeholder-text">Click a reference link in the text to view details.</p>
+            </div>
+            <div id="iframe-container">
+                <iframe id="reference-iframe" src="" frameborder="0" sandbox="allow-scripts allow-same-origin" title="Reference Content"></iframe>
+                <div id="iframe-loader" class="hidden">Loading content...</div>
+            </div>
+        </aside>
+
+        <!-- Schedule Modal -->
+        <div id="schedule-modal" class="modal-overlay hidden">
+            <div class="modal-content glass-panel" style="max-width: 450px;">
+                <h2>⚙️ System Schedule</h2>
+                <p class="modal-desc">매일 정해진 시각에 수행할 동작을 설정합니다.</p>
+                
+                <div class="schedule-group">
+                    <h3>📊 데일리 리포트 자동 생성 시간</h3>
+                    <p class="small-desc">AI가 브리핑을 작성하고 디스코드로 전송합니다.</p>
+                    <div class="schedule-input-group">
+                        <input type="time" id="schedule-time" class="time-picker">
+                    </div>
+                </div>
+
+                <div class="schedule-group" style="margin-top: 20px;">
+                    <h3>🕸️ 정보 수집기(크롤러) 실행 시간</h3>
+                    <p class="small-desc">콤마(,)로 구분하여 KST 기준 여러 시각을 입력하세요. (예: 09:00, 15:00, 18:00)</p>
+                    <div class="schedule-input-group">
+                        <input type="text" id="crawl-times" class="text-input" placeholder="09:00, 15:00" style="width: 100%; border-radius: 8px; border: 1px solid var(--glass-border); background: var(--bg-deep); color: white; padding: 10px;">
+                    </div>
+                    <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 0.8rem; color: var(--accent);">테스트 및 강제 수집:</span>
+                        <button id="btn-crawl-now" class="action-btn" style="background: rgba(255, 183, 3, 0.2); border-color: #ffb703; color: #ffb703; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s;">
+                            🚀 즉시 크롤링 시도
+                        </button>
+                    </div>
+                </div>
+
+                <div class="modal-actions" style="margin-top: 24px;">
+                    <button id="btn-schedule-cancel" class="cancel-btn">취소</button>
+                    <button id="btn-schedule-save" class="save-btn">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=2"></script>
+</body>
+</html>
