@@ -5,7 +5,7 @@ services:
     ports:
       - "5050:5050"
     env_file:
-      - ./analyzer/.env
+      - ./.env
     environment:
       - QDRANT_HOST=${DB_IP:-localhost}
       - OLLAMA_URL=http://${DB_IP:-localhost}:11434/api/embeddings
@@ -25,7 +25,7 @@ services:
       - COLLECTOR_URL=http://collector:5050
       - TZ=Asia/Seoul
     env_file:
-      - ./analyzer/.env
+      - ./.env
     depends_on:
       - collector
     networks:

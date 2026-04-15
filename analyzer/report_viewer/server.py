@@ -3,6 +3,13 @@ import os
 import json
 import httpx
 from datetime import datetime, timezone, timedelta
+from dotenv import load_dotenv
+
+# ⚠️ analyzer.py가 import될 때 즉시 OPENROUTER_API_KEY를 읽으므로,
+# dotenv 로드를 반드시 모든 import보다 먼저 수행해야 합니다.
+load_dotenv("/home/user/.osint_env")
+load_dotenv("/app/.osint_env")
+load_dotenv()  # 컨테이너 환경 변수 또는 로컬 .env 파일 fallback
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -20,7 +27,6 @@ from analyzer import (
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from dotenv import load_dotenv
 
 app = FastAPI()
 
@@ -46,10 +52,6 @@ os.makedirs(REPORT_DIR, exist_ok=True)
 CONFIG_FILE = os.path.join(REPORT_DIR, "config.json")
 CHAT_DIR = os.path.join(REPORT_DIR, "chats")
 os.makedirs(CHAT_DIR, exist_ok=True)
-
-# Try loading from possible env locations
-load_dotenv("/home/user/.osint_env")
-load_dotenv("/app/.osint_env")
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DISCORD_USER_ID = os.environ.get("DISCORD_USER_ID", "")
