@@ -1,0 +1,30 @@
+# Environments
+.env
+.env.*
+.venv/
+env/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Databases / Data
+*.db
+*.sqlite3
+config/*.db
+collector/config/*.db
+analyzer/report_viewer/config/*.db
+
+# Reports / Application Data
+OSINT_REPORT/
+analyzer/OSINT_REPORT/
+chats/
+analyzer/report_viewer/static/chats/
+
+# OS specific
+.DS_Store
+Thumbs.db
