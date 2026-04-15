@@ -39,6 +39,10 @@ TRUSTED_MIN_RICHNESS = 6.0  # 평균 정보 밀도(richness) 기준
 TRUSTED_MIN_DELTA = 5.0  # 평균 델타 기준
 TRUSTED_MAX_STRIKES = 0  # 스트라이크 없어야 함
 
+# 프리미엄 매체 (가산점 및 보정 대상)
+# PREMIUM_SOURCES = ["wsj", "reuters", "nyt", "bloomberg", "ap_news", "bbc", "cnn"]
+# PREMIUM_BONUS = 1.5
+
 
 # ───────────────────────────────────────────────
 # SQLite 스키마
@@ -71,8 +75,11 @@ _DELTA_SYSTEM_PROMPT = (
 
 _RICHNESS_SYSTEM_PROMPT = (
     "당신은 저널리즘 품질 평가 AI입니다. "
-    "아래 기사의 정보 밀도(구체적 수치, 인용, 고유명사, 사건 설명 등)를 "
-    "0.0(매우 빈약) ~ 10.0(매우 풍부) 사이의 숫자 하나만 반환하십시오. "
+    "제공된 기사(또는 요약)의 '정보 가치'와 '팩트의 구체성'을 평가하십시오. "
+    "유료 매체나 보안상의 이유로 본문이 짧은 요약 형태로 수집될 수 있습니다. "
+    "본문이 짧더라도 제목과 요약문에 담긴 사실 관계가 명확하고 전문적이라면 "
+    "박하게 점수를 주지 말고 정보적 가치를 높게 평가하십시오. "
+    "0.0(무가치) ~ 10.0(매우 가치 있음) 사이의 숫자 하나만 반환하십시오. "
     'JSON 형식으로 {"richness": <float>} 만 출력하십시오.'
 )
 
@@ -272,7 +279,7 @@ class SourceEvaluator:
         print(f"[감찰관] [3/4] LLM 독창성 정밀 분석 중...")
 
         # ── 3-A. 정보 밀도(Richness) 분석 ──────
-        richness_score = await self._llm_score_richness(content)
+        richness_score = await self._llm_score_richness(content, title)
 
         # ── 3-B. 델타(Delta) 분석 ───────────────
         if prior_article is None:
@@ -343,6 +350,11 @@ class SourceEvaluator:
                 new_delta = _cma(old_delta, delta_score, n)
                 new_lag = int(_cma(old_lag, lag_mins, n))
 
+                # 프리미엄 매체 보너스 적용
+                if source_id in PREMIUM_SOURCES:
+                    new_rich = min(10.0, new_rich + (PREMIUM_BONUS / n)) # 점진적 가산점
+                    print(f"[감찰관]   💎 프리미엄 매체 보전 적용 중 (+{PREMIUM_BONUS})")
+
                 if is_copycat:
                     strikes += 1
                     print(
@@ -402,13 +414,13 @@ class SourceEvaluator:
             fallback=5.0,
         )
 
-    async def _llm_score_richness(self, content: str) -> float:
+    async def _llm_score_richness(self, content: str, title: str = "") -> float:
         """기사의 정보 밀도(Richness)를 LLM에 요청합니다."""
         if not self.llm or not self.llm_gen_url:
             print(f"[감찰관]   (Mock) LLM 미설정 → richness=5.0 반환")
             return 5.0
 
-        user_prompt = f"[기사 본문]\n{content[:2000]}"
+        user_prompt = f"[기사 제목] {title}\n[기사 본문 요약]\n{content[:3000]}"
         return await self._call_llm_for_score(
             system_prompt=_RICHNESS_SYSTEM_PROMPT,
             user_prompt=user_prompt,
