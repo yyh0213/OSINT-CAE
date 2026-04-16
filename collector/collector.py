@@ -8,6 +8,8 @@ import csv
 import trafilatura
 import uuid
 import hashlib
+import dateparser
+from datetime import datetime
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, VectorParams, Distance, PointIdsList
 
@@ -15,6 +17,9 @@ from hooks import HookManager
 from evaluator import SourceEvaluator
 
 # --- 1. 환경 및 경로 설정 ---
+DATA_PATH = os.getenv("DATA_PATH", "config")
+os.makedirs(DATA_PATH, exist_ok=True)
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.45.80:11434/api/embeddings")
 OLLAMA_GEN_URL = OLLAMA_URL.replace(
     "/api/embeddings", "/api/generate"
@@ -28,8 +33,8 @@ EMBED_MODEL = "bge-m3"
 CLEAN_MODEL = "llama3"
 
 CONFIG_FILE = "config/sources.yaml"
-DB_FILE = "config/sources_db.csv"
-SQLITE_DB_FILE = "config/reliability.db"
+DB_FILE = os.path.join(DATA_PATH, "sources_db.csv")
+SQLITE_DB_FILE = os.path.join(DATA_PATH, "reliability.db")
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
@@ -121,7 +126,25 @@ async def extract_full_text(html_content, http_client):
     return text if text else "본문 추출 실패"
 
 
-# --- 5. 신규 정보원 테스트 로직 ---
+# --- 5. 발행일 추출 헬퍼 함수 ---
+def parse_published_date(entry, html_content):
+    """RSS 피드, 메타데이터, AI 요약 등을 활용해 기사 발행일을 추출합니다."""
+    # 1. RSS 피드 날짜 확인
+    if hasattr(entry, "published_parsed") and entry.published_parsed:
+        return int(time.mktime(entry.published_parsed))
+
+    # 2. HTML 메타데이터 확인 (Trafilatura)
+    metadata = trafilatura.metadata.extract_metadata(html_content)
+    if metadata and metadata.date:
+        parsed = dateparser.parse(metadata.date)
+        if parsed:
+            return int(parsed.timestamp())
+
+    # 3. 실패 시 현재 시간 반환 (최후의 보루)
+    return int(time.time())
+
+
+# --- 6. 신규 정보원 테스트 로직 ---
 async def test_new_source(source, http_client):
     url = source["url"]
     try:
@@ -151,7 +174,7 @@ async def test_new_source(source, http_client):
         return "ERROR", f"예외 발생: {str(e)}"
 
 
-# --- 6. 메인 수집 프로세스 ---
+# --- 7. 메인 수집 프로세스 ---
 async def process_feed(source, db, http_client):
     url = source["url"]
     name = source["name"]
@@ -195,7 +218,8 @@ async def process_feed(source, db, http_client):
                 f"  [*] 원문 길이 {len(full_text)}자 -> {len(chunks)}개의 조각(Chunk)으로 분할 완료."
             )
 
-            current_timestamp = int(time.time())
+            # 발행일 추출
+            published_ts = parse_published_date(entry, art_resp.text if 'art_resp' in locals() else "")
 
             for i, chunk_content in enumerate(chunks):
                 # 본문 내용을 해싱하여 고속 중복 검사 및 고정 ID 생성
@@ -215,7 +239,9 @@ async def process_feed(source, db, http_client):
                     "source_name": name,
                     "project": source.get("project", "General"),
                     "category": source.get("category", "News"),
-                    "timestamp": current_timestamp,
+                    "published_at": published_ts,
+                    "collected_at": int(time.time()),
+                    "timestamp": published_ts,  # Backward compatibility
                     "content": chunk_content,
                     "chunk_info": f"Part {i + 1} of {len(chunks)}",
                 }
@@ -256,8 +282,10 @@ async def cleanup_database():
 
         target_ids = []
         for point in points:
-            content = point.payload.get("content", "")
-            timestamp = point.payload.get("timestamp", now_ts)
+            payload = point.payload
+            content = payload.get("content", "")
+            # 노후 데이터 판단은 수집 시간 기준이 나을 수 있음 (필요시 published_at으로 변경 가능)
+            timestamp = payload.get("collected_at") or payload.get("timestamp") or now_ts
 
             is_low_quality = len(content) < CLEANUP_THRESHOLD
             is_expired = timestamp < retention_ts
@@ -280,8 +308,7 @@ async def cleanup_database():
         print(f"  [+] 정화 완료: 총 {deleted_count}개의 데이터가 정리되었습니다.")
 
 
-# --- 7. 초기화 및 무한 루프 ---
-# --- 7. 초기화 및 단일 사이클 로직 ---
+# --- 8. 초기화 및 단일 사이클 로직 ---
 def setup_collector():
     """Qdrant 컬렉션 등 시스템을 초기에 준비합니다."""
     print("🚀 자율형 OSINT Collector 2.0 (FastAPI 통합) 준비 중...")
@@ -299,14 +326,12 @@ def setup_collector():
         print(f"[*] '{COLLECTION_NAME}' 컬렉션 상태 확인 완료 (정상).")
 
 async def run_crawl_cycle():
-    """1회성 크롤링/수집 사이클을 실행합니다. (스케줄러나 수동 트리거 트리거 시 호출됨)"""
+    """1회성 크롤링/수집 사이클을 실행합니다."""
     print(f"\n[{time.ctime()}] 🚀 수집 사이클 딥다이브 시작...")
     
-    # 훅 초기화 (중복 등록 방지)
     hook_manager._hooks["article_inserted"] = []
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=60.0) as http_client:
-        # 감찰관 초기화 (1사이클용)
         evaluator = SourceEvaluator(
             sqlite_db_path=SQLITE_DB_FILE,
             qdrant_client=client,

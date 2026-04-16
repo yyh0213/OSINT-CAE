@@ -6,3 +6,4 @@ trafilatura
 fastapi
 uvicorn
 apscheduler
+dateparser

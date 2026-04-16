@@ -530,25 +530,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnCrawlNow      = document.getElementById("btn-crawl-now");
 
     async function loadSchedule() {
+        console.log("[Schedule] 설정값 불러오기 시작...");
+        
+        // 1. 보고서 생성 시간 로드
         try {
             const res = await fetch("/api/schedule");
             if (res.ok) {
                 const data = await res.json();
+                console.log("[Schedule] 보고서 시간:", data.time);
                 timeInput.value = data.time || "09:00";
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error("[Schedule] 보고서 시간 로드 실패:", e); 
+        }
 
+        // 2. 크롤링 시간 로드
         try {
             const res = await fetch("/api/crawl/settings");
             if (res.ok) {
                 const data = await res.json();
+                console.log("[Schedule] 크롤링 시간:", data.times);
                 if (data.times && data.times.length > 0) {
                     crawlTimesInput.value = data.times.join(", ");
                 } else {
                     crawlTimesInput.value = "";
+                    crawlTimesInput.placeholder = "예: 08:00, 14:00, 20:00";
                 }
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error("[Schedule] 크롤링 시간 로드 실패:", e); 
+        }
     }
 
     if (btnSettings) {

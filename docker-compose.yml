@@ -9,7 +9,9 @@ services:
     environment:
       - QDRANT_HOST=${DB_IP:-localhost}
       - OLLAMA_URL=http://${DB_IP:-localhost}:11434/api/embeddings
-      - TZ=Asia/Seoul
+      - DATA_PATH=/app/data
+    volumes:
+      - /mnt/user/etc_archive/OSINT_REPORT/collector_data:/app/data
     networks:
       - osint-net
     restart: unless-stopped

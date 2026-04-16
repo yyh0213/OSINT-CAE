@@ -9,6 +9,7 @@ from duckduckgo_search import DDGS
 import json
 from qdrant_client.http import models
 import time
+import sqlite3
 
 # --- 1. 기본 설정 ---
 DB_IP = os.environ.get("DB_IP", "192.168.45.80")
@@ -30,6 +31,28 @@ if not OPENROUTER_API_KEY:
     raise ValueError(
         "보안 오류: OPENROUTER_API_KEY가 없습니다! 도커 환경 변수에 입력하거나 .osint_env 파일에 저장해주세요."
     )
+
+SQLITE_DB_PATH = "config/reliability.db"
+
+
+def get_blacklisted_sources():
+    """감찰관의 장부(SQLite)에서 블랙리스트 매체 목록을 가져옵니다."""
+    if not os.path.exists(SQLITE_DB_PATH):
+        return []
+    try:
+        conn = sqlite3.connect(SQLITE_DB_PATH)
+        cur = conn.cursor()
+        # 상태가 BLACKLISTED인 매체의 이름만 추출
+        cur.execute(
+            "SELECT source_name FROM source_reliability WHERE status = 'BLACKLISTED'"
+        )
+        blacklisted = [row[0] for row in cur.fetchall()]
+        conn.close()
+        return blacklisted
+    except Exception as e:
+        print(f"  [!] 블랙리스트 DB 조회 오류: {e}")
+        return []
+
 
 llm_client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
 AI_MODEL = os.environ.get("AI_MODEL", "anthropic/claude-sonnet-4.6")
@@ -73,42 +96,80 @@ def get_query_embedding(text):
         return response.json()["embedding"]
 
 
-def search_database(query, top_k=5, hours_ago=None):
+def search_database(query, top_k=5, time_filter=None, hours_threshold=24):
+    """
+    Qdrant DB 검색 함수 (섀도우 밴 및 시간 필터 적용)
+    - time_filter="recent": hours_threshold 이내 최신 데이터
+    - time_filter="past": hours_threshold 이전 과거 데이터
+    """
     query_vector = get_query_embedding(query)
 
-    # 기본 검색 조건
+    # 1. 섀도우 밴 명단 확보
+    blacklisted_sources = get_blacklisted_sources()
+
+    # 2. Qdrant 복합 필터 구성
+    must_conditions = []
+    must_not_conditions = []
+
+    time_threshold = int(time.time()) - (hours_threshold * 3600)
+
+    # 💡 시간 필터 분기
+    if time_filter == "recent":
+        must_conditions.append(
+            models.FieldCondition(
+                key="published_at",
+                range=models.Range(gte=time_threshold),  # >= 지정 시간
+            )
+        )
+    elif time_filter == "past":
+        must_conditions.append(
+            models.FieldCondition(
+                key="published_at",
+                range=models.Range(lt=time_threshold),  # < 지정 시간
+            )
+        )
+
+    # 앵무새 매체 배제 필터 (Shadow Ban)
+    if blacklisted_sources:
+        must_not_conditions.append(
+            models.FieldCondition(
+                key="source",  # collector.py 설정에 따라 'source_name' 이나 'project'일 수 있음
+                match=models.MatchAny(any=blacklisted_sources),
+            )
+        )
+
+    # 필터 조립
+    query_filter = None
+    if must_conditions or must_not_conditions:
+        query_filter = models.Filter(
+            must=must_conditions if must_conditions else None,
+            must_not=must_not_conditions if must_not_conditions else None,
+        )
+
+    # 3. 최종 쿼리 실행
     search_params = {
         "collection_name": COLLECTION_NAME,
         "query": query_vector,
         "limit": top_k,
+        "query_filter": query_filter,
     }
-
-    # 💡 [핵심] hours_ago 값이 들어오면 해당 시간 이내의 데이터만 물리적으로 필터링
-    if hours_ago is not None:
-        time_threshold = int(time.time()) - (hours_ago * 3600)
-        search_params["query_filter"] = models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="timestamp", range=models.Range(gte=time_threshold)
-                )
-            ]
-        )
 
     response = qdrant.query_points(**search_params)
 
     if not response.points:
-        return "관련된 최신 데이터를 찾을 수 없습니다."
+        return "해당 조건의 데이터를 찾을 수 없습니다."
 
     context_text = ""
     for i, hit in enumerate(response.points, 1):
         payload = hit.payload
-        pub_time = "최근 24시간 이내"
-        if "timestamp" in payload:
-            pub_time = datetime.fromtimestamp(payload["timestamp"]).strftime(
-                "%Y-%m-%d %H:%M"
-            )
+        pub_time = "발행일시 미상"
+        # published_at 우선 사용, 없으면 timestamp 사용 (하위 호환)
+        ts = payload.get("published_at") or payload.get("timestamp")
+        if ts:
+            pub_time = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
 
-        context_text += f"[{i}] [수집일시: {pub_time}] 출처: {payload.get('project', 'Unknown')} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
+        context_text += f"[{i}] [발행일시: {pub_time}] 출처: {payload.get('source_name') or payload.get('source') or 'Unknown'} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
+
     return context_text
 
 
@@ -152,8 +213,24 @@ tools = [
 
 # --- 4. 대화형 AI 엔진 ---
 def generate_daily_report(chat_history: list[dict[str, str | None]]):
-    daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
-    daily_context = search_database(daily_query, top_k=15, hours_ago=24)
+    daily_query = "글로벌 군사, 안보, 경제 관련 주요 동향 및 갈등 국면"
+
+    # 💡 1. 최근 24시간 이내 최신 동향 15개 추출
+    recent_context = search_database(
+        daily_query, top_k=15, time_filter="recent", hours_threshold=24
+    )
+
+    # 💡 2. 24시간 이전의 과거 배경 지식 8개 추출
+    past_context = search_database(
+        daily_query, top_k=8, time_filter="past", hours_threshold=24
+    )
+
+    # 💡 3. AI가 헷갈리지 않도록 명확한 구분자를 주어 컨텍스트 병합
+    daily_context = f"""=== [최신 동향 데이터 (최근 24시간 내 수집)] ===
+{recent_context}
+
+=== [배경 맥락 데이터 (24시간 이전 수집)] ===
+{past_context}"""
 
     # 💡 [핵심 추가] AI에게 알려줄 현재 시각 문자열 생성
     now = datetime.now(timezone(timedelta(hours=9)))
@@ -192,7 +269,9 @@ def generate_daily_report(chat_history: list[dict[str, str | None]]):
 def generate_daily_report_stream(chat_history: list[dict[str, str | None]]):
     yield ">> 데이터베이스에서 최근 24시간 글로벌 동향을 탐색 중입니다...\n"
     daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
-    daily_context = search_database(daily_query, top_k=15, hours_ago=24)
+    daily_context = search_database(
+        daily_query, top_k=15, time_filter="recent", hours_threshold=24
+    )
 
     info_count = len(daily_context.split("[수집일시]")) - 1
     yield f">> DB 검색 완료. {info_count}개의 핵심 정보를 확보했습니다.\n"

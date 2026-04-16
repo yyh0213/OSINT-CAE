@@ -467,7 +467,9 @@ from contextlib import asynccontextmanager
 import collector
 
 scheduler = AsyncIOScheduler()
-CRAWL_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "config", "crawl_settings.json")
+# 💡 설정 파일 경로를 DATA_PATH(`data`) 또는 기본값(`config`)에서 읽어옵니다.
+DATA_PATH = os.environ.get("DATA_PATH", "config")
+CRAWL_SETTINGS_FILE = os.path.join(DATA_PATH, "crawl_settings.json")
 
 class CrawlScheduleRequest(BaseModel):
     times: list[str]
@@ -523,8 +525,8 @@ async def get_crawl_settings():
 @app.post("/api/crawl_settings")
 async def set_crawl_settings(req: CrawlScheduleRequest):
     os.makedirs(os.path.dirname(CRAWL_SETTINGS_FILE), exist_ok=True)
-    with open(CRAWL_SETTINGS_FILE, "w") as f:
-        json.dump({"times": req.times}, f)
+    with open(CRAWL_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump({"times": req.times}, f, ensure_ascii=False, indent=2)
     load_crawl_schedule()
     return {"success": True, "times": req.times}
 

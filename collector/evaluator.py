@@ -40,8 +40,8 @@ TRUSTED_MIN_DELTA = 5.0  # 평균 델타 기준
 TRUSTED_MAX_STRIKES = 0  # 스트라이크 없어야 함
 
 # 프리미엄 매체 (가산점 및 보정 대상)
-# PREMIUM_SOURCES = ["wsj", "reuters", "nyt", "bloomberg", "ap_news", "bbc", "cnn"]
-# PREMIUM_BONUS = 1.5
+PREMIUM_SOURCES = ["wsj", "reuters", "nyt", "bloomberg", "ap_news", "bbc", "cnn"]
+PREMIUM_BONUS = 1.5
 
 
 # ───────────────────────────────────────────────
@@ -247,7 +247,9 @@ class SourceEvaluator:
 
             # 가장 유사도가 높은 1건만 비교 대상으로 채택
             best = results[0]
-            prior_source = best.payload.get("source_name", best.payload.get("project", "Unknown"))
+            prior_source = best.payload.get(
+                "source_name", best.payload.get("project", "Unknown")
+            )
             print(
                 f"[감찰관]   ⚠️  유사 선행 기사 발견! "
                 f"출처: '{prior_source}' | 유사도: {best.score:.3f}"
@@ -352,8 +354,12 @@ class SourceEvaluator:
 
                 # 프리미엄 매체 보너스 적용
                 if source_id in PREMIUM_SOURCES:
-                    new_rich = min(10.0, new_rich + (PREMIUM_BONUS / n)) # 점진적 가산점
-                    print(f"[감찰관]   💎 프리미엄 매체 보전 적용 중 (+{PREMIUM_BONUS})")
+                    new_rich = min(
+                        10.0, new_rich + (PREMIUM_BONUS / n)
+                    )  # 점진적 가산점
+                    print(
+                        f"[감찰관]   💎 프리미엄 매체 보전 적용 중 (+{PREMIUM_BONUS})"
+                    )
 
                 if is_copycat:
                     strikes += 1
