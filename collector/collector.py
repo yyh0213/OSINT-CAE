@@ -9,7 +9,7 @@ import trafilatura
 import uuid
 import hashlib
 import dateparser
-from datetime import datetime
+import calendar
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, VectorParams, Distance, PointIdsList
 
@@ -128,19 +128,24 @@ async def extract_full_text(html_content, http_client):
 
 # --- 5. 발행일 추출 헬퍼 함수 ---
 def parse_published_date(entry, html_content):
-    """RSS 피드, 메타데이터, AI 요약 등을 활용해 기사 발행일을 추출합니다."""
-    # 1. RSS 피드 날짜 확인
+    """RSS 피드, 메타데이터 등을 활용해 기사 발행일(절대 시간)을 추출합니다."""
+    # 1. RSS 피드 날짜 확인 (feedparser는 UTC 기준 struct_time을 반환함)
     if hasattr(entry, "published_parsed") and entry.published_parsed:
-        return int(time.mktime(entry.published_parsed))
+        # 💡 mktime 대신 calendar.timegm을 써야 글로벌 표준(UTC) 초로 정확히 환산됨
+        return int(calendar.timegm(entry.published_parsed))
 
-    # 2. HTML 메타데이터 확인 (Trafilatura)
+    # 2. HTML 메타데이터 확인 (Trafilatura + dateparser)
     metadata = trafilatura.metadata.extract_metadata(html_content)
     if metadata and metadata.date:
-        parsed = dateparser.parse(metadata.date)
+        # 💡 해외 기사 중 시간대 표기가 없는 경우 UTC로 간주하도록 강제
+        parsed = dateparser.parse(
+            metadata.date,
+            settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True},
+        )
         if parsed:
             return int(parsed.timestamp())
 
-    # 3. 실패 시 현재 시간 반환 (최후의 보루)
+    # 3. 실패 시 수집 당시의 서버 시간 반환
     return int(time.time())
 
 
@@ -219,7 +224,9 @@ async def process_feed(source, db, http_client):
             )
 
             # 발행일 추출
-            published_ts = parse_published_date(entry, art_resp.text if 'art_resp' in locals() else "")
+            published_ts = parse_published_date(
+                entry, art_resp.text if "art_resp" in locals() else ""
+            )
 
             for i, chunk_content in enumerate(chunks):
                 # 본문 내용을 해싱하여 고속 중복 검사 및 고정 ID 생성
@@ -252,7 +259,9 @@ async def process_feed(source, db, http_client):
                 )
 
                 # 🕵️ 감찰관 훅 트리거 — 백그라운드에서 비동기 평가 실행
-                await hook_manager.trigger("article_inserted", payload=payload, vector=vector)
+                await hook_manager.trigger(
+                    "article_inserted", payload=payload, vector=vector
+                )
 
                 await asyncio.sleep(0.1)
 
@@ -285,7 +294,9 @@ async def cleanup_database():
             payload = point.payload
             content = payload.get("content", "")
             # 노후 데이터 판단은 수집 시간 기준이 나을 수 있음 (필요시 published_at으로 변경 가능)
-            timestamp = payload.get("collected_at") or payload.get("timestamp") or now_ts
+            timestamp = (
+                payload.get("collected_at") or payload.get("timestamp") or now_ts
+            )
 
             is_low_quality = len(content) < CLEANUP_THRESHOLD
             is_expired = timestamp < retention_ts
@@ -325,10 +336,11 @@ def setup_collector():
     else:
         print(f"[*] '{COLLECTION_NAME}' 컬렉션 상태 확인 완료 (정상).")
 
+
 async def run_crawl_cycle():
     """1회성 크롤링/수집 사이클을 실행합니다."""
     print(f"\n[{time.ctime()}] 🚀 수집 사이클 딥다이브 시작...")
-    
+
     hook_manager._hooks["article_inserted"] = []
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=60.0) as http_client:

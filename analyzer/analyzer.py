@@ -160,15 +160,21 @@ def search_database(query, top_k=5, time_filter=None, hours_threshold=24):
         return "해당 조건의 데이터를 찾을 수 없습니다."
 
     context_text = ""
-    for i, hit in enumerate(response.points, 1):
-        payload = hit.payload
-        pub_time = "발행일시 미상"
-        # published_at 우선 사용, 없으면 timestamp 사용 (하위 호환)
-        ts = payload.get("published_at") or payload.get("timestamp")
-        if ts:
-            pub_time = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        kst = timezone(timedelta(hours=9)) # 💡 한국 표준시 객체 생성
+        
+        for i, hit in enumerate(response.points, 1):
+            payload = hit.payload
+            pub_time = "수집일시 미상"  
+            
+            # 💡 우선순위: published_at 이 있으면 쓰고, 없으면 과거 레거시 timestamp 사용
+            ts = payload.get("published_at") or payload.get("timestamp")
+            
+            if ts:
+                # 절대 시간(UTC)을 KST(한국 시간) 문자열로 예쁘게 변환
+                dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+                pub_time = dt_utc.astimezone(kst).strftime("%Y-%m-%d %H:%M KST")
 
-        context_text += f"[{i}] [발행일시: {pub_time}] 출처: {payload.get('source_name') or payload.get('source') or 'Unknown'} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
+            context_text += f"[{i}] [발행/수집일시: {pub_time}] 출처: {payload.get('source_name', payload.get('project', 'Unknown'))} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
 
     return context_text
 
