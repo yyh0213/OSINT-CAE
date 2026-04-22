@@ -232,21 +232,22 @@ class SourceEvaluator:
                 ]
             )
 
-            results = self.qdrant.search(
+            # 💡 최신 Qdrant API 규격(query_points)으로 전환
+            response = self.qdrant.query_points(
                 collection_name=COLLECTION_NAME,
-                query_vector=vector,
+                query=vector,
                 query_filter=time_filter,
                 limit=5,
                 score_threshold=COPYCAT_SIMILARITY_THRESHOLD,
                 with_payload=True,
             )
 
-            if not results:
+            if not response.points:
                 print(f"[감찰관]   ✔ 유사 선행 기사 없음 — 독자 보도로 잠정 판정.")
                 return None
 
             # 가장 유사도가 높은 1건만 비교 대상으로 채택
-            best = results[0]
+            best = response.points[0]
             prior_source = best.payload.get(
                 "source_name", best.payload.get("project", "Unknown")
             )

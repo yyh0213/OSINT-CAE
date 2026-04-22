@@ -113,18 +113,18 @@ def search_database(query, top_k=5, time_filter=None, hours_threshold=24):
 
     time_threshold = int(time.time()) - (hours_threshold * 3600)
 
-    # 💡 시간 필터 분기
+    # 💡 시간 필터 분기 (하위 호환성을 위해 'timestamp' 필드 사용)
     if time_filter == "recent":
         must_conditions.append(
             models.FieldCondition(
-                key="published_at",
+                key="timestamp",
                 range=models.Range(gte=time_threshold),  # >= 지정 시간
             )
         )
     elif time_filter == "past":
         must_conditions.append(
             models.FieldCondition(
-                key="published_at",
+                key="timestamp",
                 range=models.Range(lt=time_threshold),  # < 지정 시간
             )
         )
@@ -160,21 +160,21 @@ def search_database(query, top_k=5, time_filter=None, hours_threshold=24):
         return "해당 조건의 데이터를 찾을 수 없습니다."
 
     context_text = ""
-        kst = timezone(timedelta(hours=9)) # 💡 한국 표준시 객체 생성
+    kst = timezone(timedelta(hours=9)) # 💡 한국 표준시 객체 생성
+    
+    for i, hit in enumerate(response.points, 1):
+        payload = hit.payload
+        pub_time = "수집일시 미상"  
         
-        for i, hit in enumerate(response.points, 1):
-            payload = hit.payload
-            pub_time = "수집일시 미상"  
-            
-            # 💡 우선순위: published_at 이 있으면 쓰고, 없으면 과거 레거시 timestamp 사용
-            ts = payload.get("published_at") or payload.get("timestamp")
-            
-            if ts:
-                # 절대 시간(UTC)을 KST(한국 시간) 문자열로 예쁘게 변환
-                dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
-                pub_time = dt_utc.astimezone(kst).strftime("%Y-%m-%d %H:%M KST")
+        # 💡 우선순위: published_at 이 있으면 쓰고, 없으면 과거 레거시 timestamp 사용
+        ts = payload.get("published_at") or payload.get("timestamp")
+        
+        if ts:
+            # 절대 시간(UTC)을 KST(한국 시간) 문자열로 예쁘게 변환
+            dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+            pub_time = dt_utc.astimezone(kst).strftime("%Y-%m-%d %H:%M KST")
 
-            context_text += f"[{i}] [발행/수집일시: {pub_time}] 출처: {payload.get('source_name', payload.get('project', 'Unknown'))} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
+        context_text += f"[{i}] [발행/수집일시: {pub_time}] 출처: {payload.get('source_name', payload.get('project', 'Unknown'))} (링크: {payload.get('link', 'URL 없음')})\n제목: {payload.get('title', '')}\n본문 요약: {payload.get('content', '')}\n\n"
 
     return context_text
 
