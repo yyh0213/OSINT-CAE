@@ -77,11 +77,12 @@ PROMPT = {
     4. 각 항목의 내용을 서술할 때, 반드시 문장 끝에 출처 번호를 기재하십시오. (예: ...로 상황이 반전됨 [2].)
 
     [보고서 구조]
-    🔴 1. Executive Summary (현재 시각 기준 24시간 내 발생한 가장 치명적인 국면 전환 최대 3가지. 24시간 내 주요 뉴스가 없다면 '특이 전환 없음' 명시)
-    🌍 2. 지정학 및 군사 동향 (이전 전황(Background)과 최근 24시간(New Updates)을 명확히 분리하여 서술)
-    💰 3. 경제 및 공급망 동향 (시장 지표의 등락 및 정책 변화. 24시간 이내 데이터 위주)
-    👁️ 4. 잠재적 위협 및 이상 징후 (Blind Spots)
-    📚 5. References (참고 출처 목록. 반드시 표에 "수집일시", "제목", "출처", "링크(URL)" 열을 추가할 것)
+    1. Executive Summary (현재 시각 기준 24시간 내 발생한 가장 치명적인 국면 전환 최대 3가지. 24시간 내 주요 뉴스가 없다면 '특이 전환 없음' 명시)
+    2. 지정학 및 군사 동향 (이전 전황(Background)과 최근 24시간(New Updates)을 명확히 분리하여 서술)
+    3. 경제 및 공급망 동향 (시장 지표의 등락 및 정책 변화. 24시간 이내 데이터 위주)
+    4. AI 최신 동향
+    5. 잠재적 위협 및 이상 징후 (Blind Spots)
+    6. References (참고 출처 목록. 반드시 표에 "수집일시", "제목", "출처", "링크(URL)" 열을 추가할 것)
     """,
     "follow_up": "위의 대화 문맥과 새롭게 검색된 아래의 데이터를 바탕으로 사용자님의 질문에 답변하십시오. 정보가 부족하다면 '데이터 부족'을 명시하고, 답변 시 반드시 새로운 출처 번호를 본문에 인용하십시오.",
 }
@@ -219,7 +220,7 @@ tools = [
 
 # --- 4. 대화형 AI 엔진 ---
 def generate_daily_report(chat_history: list[dict[str, str | None]]):
-    daily_query = "글로벌 군사, 안보, 경제 관련 주요 동향 및 갈등 국면"
+    daily_query = "글로벌 군사, 안보, 경제, AI 관련 주요 동향 및 갈등 국면"
 
     # 💡 1. 최근 24시간 이내 최신 동향 15개 추출
     recent_context = search_database(
@@ -274,7 +275,7 @@ def generate_daily_report(chat_history: list[dict[str, str | None]]):
 
 def generate_daily_report_stream(chat_history: list[dict[str, str | None]]):
     yield ">> 데이터베이스에서 최근 24시간 글로벌 동향을 탐색 중입니다...\n"
-    daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제 관련 주요 동향"
+    daily_query = "최근 24시간 동안의 글로벌 군사, 안보, 경제, AI 관련 주요 동향"
     daily_context = search_database(
         daily_query, top_k=15, time_filter="recent", hours_threshold=24
     )
