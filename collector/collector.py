@@ -1,4 +1,5 @@
 import asyncio
+import json
 import yaml
 import feedparser
 import httpx
@@ -184,6 +185,8 @@ async def process_feed(source, db, http_client):
     url = source["url"]
     name = source["name"]
     record = db.get(url)
+    collected_articles = 0
+    created_vectors = 0
 
     if not record:
         status, note = await test_new_source(source, http_client)
@@ -197,9 +200,9 @@ async def process_feed(source, db, http_client):
         save_db(db)
         if status != "SUCCESS":
             print(f"[-] {name} 정찰 실패 ({note})")
-            return
+            return 0, 0
     elif record["Status"] != "SUCCESS":
-        return
+        return 0, 0
 
     print(f"[*] {name} 수집 및 본문 딥다이브 중...")
     try:
@@ -209,6 +212,7 @@ async def process_feed(source, db, http_client):
         for entry in feed.entries[:10]:
             title = entry.title
             link = entry.link
+            collected_articles += 1
 
             try:
                 art_resp = await http_client.get(
@@ -239,6 +243,7 @@ async def process_feed(source, db, http_client):
 
                 embed_target = f"{title}: {chunk_content}"
                 vector = await get_embedding(embed_target, http_client)
+                created_vectors += 1
 
                 payload = {
                     "title": title,
@@ -268,9 +273,11 @@ async def process_feed(source, db, http_client):
             await asyncio.sleep(1)
 
         print(f"  -> {name} 완료.")
+        return collected_articles, created_vectors
 
     except Exception as e:
         print(f"[!] {name} 수집 에러: {e}")
+        return collected_articles, created_vectors
 
 
 async def cleanup_database():
@@ -341,7 +348,12 @@ async def run_crawl_cycle():
     """1회성 크롤링/수집 사이클을 실행합니다."""
     print(f"\n[{time.ctime()}] 🚀 수집 사이클 딥다이브 시작...")
 
+    start_time = time.time()
+    total_collected_articles = 0
+    total_created_vectors = 0
+
     hook_manager._hooks["article_inserted"] = []
+    hook_manager.pending_tasks = []
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=60.0) as http_client:
         evaluator = SourceEvaluator(
@@ -358,10 +370,47 @@ async def run_crawl_cycle():
                 config = yaml.safe_load(f)
             db = load_db()
 
-            for source in config.get("sources", []):
-                await process_feed(source, db, http_client)
+            sources = config.get("sources", [])
+            for source in sources:
+                col_cnt, vec_cnt = await process_feed(source, db, http_client)
+                total_collected_articles += col_cnt
+                total_created_vectors += vec_cnt
 
             await cleanup_database()
-            print(f"[{time.ctime()}] ✅ 수집 사이클이 무사히 완료되었습니다.")
+
+            # Wait for all background tasks to complete
+            if hook_manager.pending_tasks:
+                print(f"[*] 감찰관 백그라운드 평가 완료 대기 중... ({len(hook_manager.pending_tasks)}개 작업)")
+                await asyncio.gather(*hook_manager.pending_tasks, return_exceptions=True)
+                print("[*] 모든 감찰관 평가 완료.")
+
+            elapsed_time = time.time() - start_time
+            print(f"[{time.ctime()}] ✅ 수집 사이클이 무사히 완료되었습니다. 소요 시간: {elapsed_time:.2f}초")
+
+            # Write log file
+            log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+            os.makedirs(log_dir, exist_ok=True)
+
+            # Plagiarized articles details
+            plagiarized_list = [json.loads(x) for x in evaluator.copycat_articles]
+
+            log_data = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "elapsed_time_seconds": round(elapsed_time, 2),
+                "sources_processed": len(sources),
+                "collected_articles_count": total_collected_articles,
+                "created_vectors_count": total_created_vectors,
+                "plagiarism_excluded_articles_count": len(plagiarized_list),
+                "plagiarized_articles": plagiarized_list
+            }
+
+            log_filename = f"collect_{time.strftime('%Y%m%d_%H%M%S')}.json"
+            log_filepath = os.path.join(log_dir, log_filename)
+
+            with open(log_filepath, "w", encoding="utf-8") as lf:
+                json.dump(log_data, lf, ensure_ascii=False, indent=2)
+
+            print(f"[+] 수집 결과 로그 저장 완료: {log_filepath}")
+
         except Exception as e:
             print(f"❌ 수집 사이클 중 에러 발생: {e}")

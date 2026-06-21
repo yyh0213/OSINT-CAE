@@ -7,6 +7,7 @@ class HookManager:
 
     def __init__(self):
         self._hooks = {}
+        self.pending_tasks = []
 
     def register(self, event_name: str, callback):
         """특정 이벤트에 실행할 함수(구독자)를 등록"""
@@ -19,4 +20,5 @@ class HookManager:
         if event_name in self._hooks:
             for callback in self._hooks[event_name]:
                 # 메인 프로세스(수집기)를 멈추지 않고 백그라운드 작업으로 던짐
-                asyncio.create_task(callback(*args, **kwargs))
+                task = asyncio.create_task(callback(*args, **kwargs))
+                self.pending_tasks.append(task)

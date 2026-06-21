@@ -15,6 +15,10 @@ services:
     networks:
       - osint-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
 
   analyzer:
     build: ./analyzer

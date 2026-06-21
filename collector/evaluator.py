@@ -113,6 +113,7 @@ class SourceEvaluator:
         self.llm = llm_client
         self.llm_gen_url = llm_gen_url
         self.llm_model = llm_model
+        self.copycat_articles = set()
         self._init_sqlite_db()
 
     # ── 초기화 ────────────────────────────────
@@ -164,15 +165,24 @@ class SourceEvaluator:
             )
 
             # ── Step 4: 신뢰도 점수 갱신 및 상태 판정 ────────────────────
+            is_copycat = (
+                prior_article is not None and delta_score < COPYCAT_DELTA_THRESHOLD
+            )
+            if is_copycat:
+                article_info = json.dumps({
+                    "title": title,
+                    "link": payload.get("link", ""),
+                    "source_name": source_name
+                }, ensure_ascii=False)
+                self.copycat_articles.add(article_info)
+
             await self._step4_update_scores(
                 source_id=source_id,
                 source_name=source_name,
                 delta_score=delta_score,
                 richness_score=richness_score,
                 lag_mins=lag_mins,
-                is_copycat=(
-                    prior_article is not None and delta_score < COPYCAT_DELTA_THRESHOLD
-                ),
+                is_copycat=is_copycat,
             )
 
             print(
